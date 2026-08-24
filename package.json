@@ -1,0 +1,15 @@
+{
+  "name": "starline-ledger",
+  "version": "1.0.0",
+  "private": true,
+  "description": "StarLine Ledger — monthly expense tracker",
+  "main": "server.js",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "pg": "^8.13.1"
+  }
+}
