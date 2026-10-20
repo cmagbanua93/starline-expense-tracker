@@ -178,13 +178,26 @@ function findDate(t) {
   return '';
 }
 
+// Which channel paid, judged from the sender first, then the wording.
+function detectMethod(text, from) {
+  const f = String(from || '').toLowerCase(), t = String(text || '');
+  const card = /credit card|rewards card|platinum|mastercard|visa/i.test(t);
+  const banks = [['bpi', 'BPI'], ['unionbank', 'UnionBank'], ['bdo', 'BDO'], ['eastwest', 'EastWest']];
+  if (f.indexOf('gcash') >= 0 || /\bGCash\b/.test(t) && !banks.some(function (b) { return f.indexOf(b[0]) >= 0; })) return 'GCash';
+  for (let i = 0; i < banks.length; i++) {
+    if (f.indexOf(banks[i][0]) >= 0) return banks[i][1] + (card ? ' Credit Card' : '');
+  }
+  if (/auto[\s-]?debit/i.test(t)) return 'Auto-debit';
+  return '';
+}
+
 function parseReceipt(text, receivedAt) {
   const t = String(text || '').replace(/\s+/g, ' ').trim();
   const fallback = receivedAt ? manilaParts(new Date(receivedAt)).date : todayISO();
   let date = findDate(t);
   // A date far from when the message arrived is probably a due date or statement date.
   if (!date || Math.abs(dayDiff(date, fallback)) > 45) date = fallback;
-  return { amount: findAmount(t), ref: findRef(t), date: date };
+  return { amount: findAmount(t), ref: findRef(t), date: date, method: detectMethod(t, arguments[2]) };
 }
 
 /* ---------------------------------------------------------- matching --- */
@@ -201,25 +214,47 @@ function expectedAmount(d, cat) {
   return cat.amount == null ? null : Number(cat.amount);
 }
 
+// A bill matches on its biller account number (strongest), a card's last four
+// digits, its receipt keywords, and the expected amount. Only a clear winner
+// with real evidence is filed automatically; anything weaker waits for review.
+const PAYER_SIDE = /(using|from|pay from|debited from|charged to)\s+(your\s+)?(account|card|acct)?[^.\n]{0,25}$/i;
 function matchBill(d, text, amount) {
-  const up = String(text || '').toUpperCase();
-  const digits = String(text || '').replace(/\D/g, '');
+  text = String(text || '');
+  const up = text.toUpperCase();
+  // Each number on its own (spaces or dashes inside a number are allowed),
+  // so digits from different fields never run together into a false match.
+  const runs = text.replace(/(\d)[ \-](?=\d)/g, '$1').match(/\d+/g) || [];
   const out = [];
   d.cats.forEach(function (c) {
     if (!c.active) return;
     let score = 0;
     const why = [];
     const acct = String(c.accountNo || '').replace(/\D/g, '');
-    if (acct.length >= 6 && digits.indexOf(acct) >= 0) { score += 100; why.push('account number'); }
-    else if (acct.length >= 4) {
+    if (acct.length >= 6 && runs.some(function (r) { return r === acct || (r.length <= acct.length + 4 && r.indexOf(acct) >= 0); })) {
+      score += 100; why.push('account number');
+    } else if (acct.length >= 4) {
       const last4 = acct.slice(-4);
-      if (new RegExp('[*xX•]{2,}\\s?' + last4 + '(?!\\d)').test(text || '')) { score += 40; why.push('account ending ' + last4); }
+      if (runs.some(function (r) { return r.length >= 12 && r.slice(-4) === last4; })) { score += 60; why.push('card ending ' + last4); }
+      else {
+        // "ending in 1234" / "****1234" — but not the account you paid FROM.
+        const re = new RegExp('(?:ending(?:\\s+in)?\\s*[*xX•]*|[*xX•]{2,})\\s?' + last4 + '(?!\\d)', 'g');
+        let m;
+        while ((m = re.exec(text))) {
+          if (!PAYER_SIDE.test(text.slice(Math.max(0, m.index - 45), m.index))) { score += 40; why.push('ending ' + last4); break; }
+        }
+      }
     }
     let kw = 0;
     String(c.matchKeys || '').split(',').map(function (k) { return k.trim().toUpperCase(); })
       .filter(function (k) { return k.length >= 3; })
-      .forEach(function (k) { if (up.indexOf(k) >= 0 && kw < 30) { kw += 15; why.push('"' + k.toLowerCase() + '"'); } });
-    score += kw;
+      .forEach(function (k) {
+        if (up.indexOf(k) < 0 || kw >= 55) return;
+        // A specific phrase ("VECO Minglanilla House", "Unionbank Visa") is
+        // strong evidence; a bare brand name ("Globe") only narrows it down.
+        const specific = k.indexOf(' ') > 0;
+        kw += specific ? 40 : 15; why.push('"' + k.toLowerCase() + '"');
+      });
+    score += Math.min(kw, 55);
     if (score > 0 && amount != null) {
       const exp = expectedAmount(d, c);
       // GCash adds a small convenience fee, so allow a few pesos either way.
@@ -230,8 +265,17 @@ function matchBill(d, text, amount) {
   out.sort(function (a, b) { return b.score - a.score; });
   const top = out[0], second = out[1];
   let best = null;
-  if (top && top.score >= 15 && (!second || top.score - second.score >= 15)) best = top.catId;
+  if (top && top.score >= 40 && (!second || top.score - second.score >= 15)) best = top.catId;
   return { best: best, candidates: out.slice(0, 5) };
+}
+
+// Emails that mention money but are not bill payments: money coming in,
+// transfers between your own accounts, withdrawals, statements, reminders.
+const NOT_A_PAYMENT = /incoming|funds transfer|transfer money|bank transfer|successfully transferred|cash[ -]?in\b|withdrawal|statement of account|e-?statement|\be-?soa\b|payment (due )?reminder|due reminder|minimum (amount|payment)|advisory|added .{0,30}favorite|transaction history/i;
+function isPaymentConfirmation(text) {
+  const t = String(text || '');
+  if (NOT_A_PAYMENT.test(t)) return false;
+  return /(paid|payment|debit|successful|received|receipt|transaction|confirm)/i.test(t);
 }
 
 /* ---------------------------------------------------------- applying --- */
@@ -255,6 +299,19 @@ function applyPayment(d, p) {
       }
     }
   }
+  // The same payment often gets two emails (GCash receipt + the bank's own
+  // confirmation): a line already paid within 5 days for about the same amount
+  // is that payment, not the next month's bill.
+  if (p.amount != null) {
+    for (let i = 0; i < keys.length; i++) {
+      const m = d.months[keys[i]];
+      const twin = m && m.rows.find(function (r) {
+        return r.catId === p.catId && r.paidOn && Math.abs(dayDiff(r.paidOn, paidOn)) <= 5 &&
+          r.amount != null && Math.abs(Number(r.amount) - Number(p.amount)) <= 15;
+      });
+      if (twin) return { status: 'duplicate', monthKey: keys[i] };
+    }
+  }
   if (!d.months[pk] || !d.months[pk].rows.some(function (r) { return r.catId === p.catId; })) seedMonth(d, pk);
 
   let pick = null, pickKey = null, pickDist = Infinity;
@@ -271,11 +328,12 @@ function applyPayment(d, p) {
 
   pick.paidOn = paidOn;
   const fund = (d.funding || []).find(function (f) { return f.id === cat.fundFrom; });
+  if (p.method && d.methods.indexOf(p.method) < 0) d.methods.push(p.method);
   pick.method = p.method || pick.method || (fund ? fund.name : '');
   if (p.ref) pick.ref = p.ref;
   pick.confirmedBy = p.source || 'receipt';
   if (p.amount != null) {
-    if (pick.amount == null || pick.amount === '') pick.amount = Number(p.amount);
+    if (pick.amount == null || pick.amount === '') { pick.amount = Number(p.amount); pick.ownAmount = true; }
     else if (Math.abs(Number(pick.amount) - Number(p.amount)) >= 1) {
       pick.note = 'Receipt showed ₱' + Number(p.amount).toFixed(2) + (pick.note ? ' · ' + pick.note : '');
     }
@@ -403,7 +461,30 @@ function digestText(d, ov, reviewCount) {
   return 'StarLine bills — ' + fmtDay(ov.today) + '\n\n' + lines.join('\n');
 }
 
+// Reverses a payment the receipt inbox recorded on the wrong bill.
+function undoPayment(d, ev) {
+  const m = d.months[ev.month_key];
+  if (!m) return false;
+  const row = m.rows.find(function (r) {
+    return r.catId === ev.cat_id && r.confirmedBy && r.paidOn &&
+      (ev.ref ? r.ref === ev.ref : r.paidOn === ev.paid_on);
+  });
+  if (!row) return false;
+  row.paidOn = ''; delete row.ref; delete row.confirmedBy;
+  row.note = String(row.note || '').replace(/^Receipt showed ₱[\d.,]+( · )?/, '');
+  const cat = d.cats.find(function (c) { return c.id === row.catId; });
+  row.method = (cat && cat.method) || row.method;
+  return true;
+}
+
+// Card numbers stay out of the receipt log: keep only the last four digits.
+function maskCards(text) {
+  return String(text || '').replace(/\b\d{4,6}[Xx*•]{4,}(\d{4})\b/g, '•••• $1')
+    .replace(/\b(?:\d[ -]?){12,15}(\d{4})\b/g, '•••• $1');
+}
+
 module.exports = {
+  maskCards, detectMethod, isPaymentConfirmation, undoPayment,
   TZ, PAY_MODES, manilaParts, todayISO, monthKeyOf, addMonths, addDays,
   upgradeDoc, seedMonth, parseReceipt, matchBill, applyPayment, buildOverview, digestText, fmtMoney
 };

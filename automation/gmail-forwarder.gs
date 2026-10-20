@@ -21,34 +21,41 @@ const INGEST_TOKEN = 'PASTE_THE_INGEST_TOKEN_HERE';
 
 // Who sends your payment confirmations. Add a sender here if a receipt is missed.
 const SENDERS = [
-  'gcash', 'bpi.com.ph', 'unionbankph.com', 'bdo.com.ph', 'eastwestbanker.com',
+  'gcash', 'bpi.com.ph', 'onlinebanking@bpi.com.ph', 'unionbankph.com', 'bdo.com.ph', 'eastwestbanker.com', 'eastwest',
   'pldt', 'globe.com.ph', 'veco', 'visayanelectric', 'aboitizpower'
 ];
 // Words that appear in the subject of a payment confirmation.
 const SUBJECT_WORDS = [
-  'receipt', 'payment', 'paid', 'debit', 'bills', 'confirmation', 'transaction', 'successful'
+  'receipt', 'payment', 'paid', 'pay', 'debit', 'bills', 'confirmation', 'transaction',
+  'successful', 'completed', 'acknowledgment', 'advice'
 ];
+// Payment-looking emails that are not bill payments.
+const SKIP_SUBJECTS = ['statement', 'reminder', 'funds transfer', 'bank transfer', 'incoming', 'withdrawal', 'transaction history'];
 const LABEL = 'StarLine/Forwarded';
-const LOOKBACK = '3d';
+const LOOKBACK = '3d';          // every 10-minute run
+const FIRST_LOOKBACK = '35d';   // one-time catch-up when you run setup
 
 function setup() {
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (t.getHandlerFunction() === 'forwardReceipts') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('forwardReceipts').timeBased().everyMinutes(10).create();
-  forwardReceipts();
+  forwardReceipts(FIRST_LOOKBACK);
   Logger.log('Done. Receipts will be forwarded every 10 minutes.');
 }
 
-function forwardReceipts() {
+function forwardReceipts(lookback) {
+  // Triggers pass an event object; only a string here means a custom window.
+  const window = typeof lookback === 'string' ? lookback : LOOKBACK;
   if (LEDGER_URL.indexOf('PASTE') === 0 || INGEST_TOKEN.indexOf('PASTE') === 0) {
     throw new Error('Fill in LEDGER_URL and INGEST_TOKEN at the top of the script first.');
   }
   const label = GmailApp.getUserLabelByName(LABEL) || GmailApp.createLabel(LABEL);
-  const query = 'newer_than:' + LOOKBACK + ' -label:' + LABEL.replace('/', '-') +
+  const query = 'newer_than:' + window + ' -label:' + LABEL.replace('/', '-') +
     ' {' + SENDERS.map(function (s) { return 'from:' + s; }).join(' ') + '}' +
-    ' {' + SUBJECT_WORDS.map(function (w) { return 'subject:' + w; }).join(' ') + '}';
-  const threads = GmailApp.search(query, 0, 25);
+    ' {' + SUBJECT_WORDS.map(function (w) { return 'subject:' + w; }).join(' ') + '}' +
+    ' ' + SKIP_SUBJECTS.map(function (w) { return '-subject:"' + w + '"'; }).join(' ');
+  const threads = GmailApp.search(query, 0, window === LOOKBACK ? 25 : 50);
   if (!threads.length) return;
 
   const items = [];

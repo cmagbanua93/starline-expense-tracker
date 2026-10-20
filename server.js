@@ -266,7 +266,7 @@ async function runAutomation(force) {
 // pays and records it. Everything is logged in payment_event.
 async function ingestReceipt(input) {
   const text = [input.subject, input.text].filter(Boolean).join('\n');
-  const parsed = A.parseReceipt(text, input.receivedAt);
+  const parsed = A.parseReceipt(text, input.receivedAt, input.from);
   const dedupeKey = input.messageId ? input.source + ':' + String(input.messageId).slice(0, 200)
     : (parsed.ref ? 'ref:' + parsed.ref : null);
   if (dedupeKey) {
@@ -277,12 +277,12 @@ async function ingestReceipt(input) {
   const match = A.matchBill(led.doc, text, parsed.amount);
   let status, outcome = null;
   // Forwarded mail also brings promos ("Get P99 data!"); only payment confirmations count.
-  const looksPaid = /(paid|payment|debit|successful|received|receipt|transaction|confirm)/i.test(text);
+  const looksPaid = input.source === 'manual' ? true : A.isPaymentConfirmation(text);
   if (parsed.amount == null || !looksPaid) status = 'ignored';
   else if (!match.best) status = 'needs_review';
   else {
     const res = await mutateLedger(function (d) {
-      outcome = A.applyPayment(d, { catId: match.best, amount: parsed.amount, paidOn: parsed.date, ref: parsed.ref, source: input.source });
+      outcome = A.applyPayment(d, { catId: match.best, amount: parsed.amount, paidOn: parsed.date, ref: parsed.ref, method: parsed.method, source: input.source });
       return outcome.status === 'applied' ? outcome : false;
     });
     status = outcome.status === 'applied' ? 'applied' : (outcome.status === 'duplicate' ? 'duplicate' : 'needs_review');
@@ -295,8 +295,8 @@ async function ingestReceipt(input) {
   const ins = await pool.query(
     `INSERT INTO payment_event (source, dedupe_key, sender, subject, excerpt, amount, ref, paid_on, cat_id, bill_name, month_key, status, detail)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT (dedupe_key) DO NOTHING RETURNING id`,
-    [input.source, dedupeKey, (input.from || '').slice(0, 200), (input.subject || '').slice(0, 300),
-      String(input.text || '').replace(/\s+/g, ' ').slice(0, 1500), parsed.amount, parsed.ref || null, parsed.date,
+    [input.source, dedupeKey, (input.from || '').slice(0, 200), A.maskCards(input.subject || '').slice(0, 300),
+      A.maskCards(String(input.text || '').replace(/\s+/g, ' ')).slice(0, 1500), parsed.amount, parsed.ref || null, parsed.date,
       cat ? cat.id : null, cat ? cat.name : null, outcome && outcome.monthKey ? outcome.monthKey : null, status,
       JSON.stringify({ candidates: match.candidates })]);
   return { status: status, parsed: parsed, match: match, eventId: ins.rowCount ? Number(ins.rows[0].id) : null, outcome: outcome };
@@ -588,7 +588,7 @@ app.post('/api/receipt/apply', requireAuth, async (req, res, next) => {
     const paidOn = /^\d{4}-\d{2}-\d{2}$/.test(b.paidOn || '') ? b.paidOn : A.todayISO();
     let outcome = null;
     const res2 = await mutateLedger(function (d) {
-      outcome = A.applyPayment(d, { catId: String(b.catId || ''), amount: amount, paidOn: paidOn, ref: clip(b.ref, 60), source: 'manual' });
+      outcome = A.applyPayment(d, { catId: String(b.catId || ''), amount: amount, paidOn: paidOn, ref: clip(b.ref, 60), method: clip(b.method, 40), source: 'manual' });
       return outcome.status === 'applied' ? outcome : false;
     });
     if (outcome.status !== 'applied') {
@@ -605,7 +605,7 @@ app.post('/api/receipt/apply', requireAuth, async (req, res, next) => {
       await pool.query(
         `INSERT INTO payment_event (source, dedupe_key, excerpt, amount, ref, paid_on, cat_id, bill_name, month_key, status)
          VALUES ('manual', $1, $2, $3, $4, $5, $6, $7, $8, 'applied') ON CONFLICT (dedupe_key) DO NOTHING`,
-        [b.ref ? 'ref:' + clip(b.ref, 60) : null, clip(b.text, 1500).replace(/\s+/g, ' '), amount, clip(b.ref, 60) || null, paidOn, cat.id, cat.name, outcome.monthKey]);
+        [b.ref ? 'ref:' + clip(b.ref, 60) : null, A.maskCards(clip(b.text, 1500).replace(/\s+/g, ' ')), amount, clip(b.ref, 60) || null, paidOn, cat.id, cat.name, outcome.monthKey]);
     }
     res.json({ ok: true, version: res2.version, outcome: outcome });
   } catch (e) { next(e); }
@@ -615,6 +615,17 @@ app.post('/api/events/:id/dismiss', requireAuth, async (req, res, next) => {
   try {
     await pool.query("UPDATE payment_event SET status = 'dismissed' WHERE id = $1 AND status = 'needs_review'", [Number(req.params.id)]);
     res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+app.post('/api/events/:id/undo', requireAuth, async (req, res, next) => {
+  try {
+    const { rows } = await pool.query("SELECT id, cat_id, month_key, ref, paid_on::text AS paid_on FROM payment_event WHERE id = $1 AND status = 'applied'", [Number(req.params.id)]);
+    if (!rows.length) return res.status(404).json({ code: 'not_found', message: 'That receipt is not recorded on a bill.' });
+    let done = false;
+    const r = await mutateLedger(function (d) { done = A.undoPayment(d, rows[0]); return done || false; });
+    await pool.query("UPDATE payment_event SET status = 'needs_review', month_key = NULL WHERE id = $1", [rows[0].id]);
+    res.json({ ok: true, reverted: done, version: r && r.version });
   } catch (e) { next(e); }
 });
 

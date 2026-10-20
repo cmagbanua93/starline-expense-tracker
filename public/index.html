@@ -100,7 +100,7 @@ a{color:var(--link)}
 .nav button.on{background:rgba(232,182,54,.13); color:var(--gold-light)}
 .nav button.on::before{content:""; position:absolute; left:-12px; top:8px; bottom:8px; width:3px; border-radius:0 3px 3px 0; background:var(--gold)}
 .nav button .ic{width:18px; height:18px; flex:0 0 18px}
-.nav .badge{margin-left:auto; min-width:20px; height:20px; padding:0 6px; border-radius:10px; background:var(--crit); color:#fff; font-size:11px; font-weight:700; display:inline-grid; place-items:center}
+.nav .badge{margin-left:auto; min-width:20px; height:20px; padding:0 6px; border-radius:4px; background:var(--crit); color:#fff; font-size:11px; font-weight:700; display:inline-grid; place-items:center}
 .sidefoot{padding:14px 16px; border-top:1px solid rgba(255,255,255,.08); display:flex; align-items:center; gap:10px}
 .sidefoot .who{flex:1; min-width:0; font-size:12px; line-height:1.3}
 .sidefoot .who b{display:block; color:#fff; font-weight:600; font-size:12.5px; overflow:hidden; text-overflow:ellipsis}
@@ -156,12 +156,15 @@ label.fld{display:flex; flex-direction:column; gap:6px; font-size:12px; font-wei
 .check{display:flex; align-items:flex-start; gap:9px; font-size:13px; color:var(--ink); font-weight:500; cursor:pointer}
 .check input{width:16px; height:16px; margin:2px 0 0; accent-color:var(--navy); flex:0 0 16px}
 
-.pill{display:inline-flex; align-items:center; gap:5px; padding:2px 9px; border-radius:999px; font-size:11.5px; font-weight:700; white-space:nowrap}
-.pill .dot{width:6px; height:6px; border-radius:50%; background:currentColor}
-.pill.paid,.pill.applied{background:var(--good-wash); color:var(--good-ink)}
-.pill.pending,.pill.needs_review{background:var(--warn-wash); color:var(--warn-ink)}
-.pill.overdue{background:var(--crit-wash); color:var(--crit-ink)}
-.pill.blank,.pill.ignored,.pill.dismissed,.pill.duplicate{background:var(--surface-3); color:var(--muted)}
+.pill{display:inline-block; padding:3px 8px; border-radius:4px; font-size:10.5px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; line-height:1.35; white-space:nowrap; border:1px solid var(--border-2); background:var(--surface-2); color:var(--ink-2)}
+.pill .dot{display:none}
+.pill.paid,.pill.applied{background:var(--good-wash); color:var(--good-ink); border-color:color-mix(in srgb, var(--good) 40%, transparent)}
+.pill.pending,.pill.needs_review{background:var(--warn-wash); color:var(--warn-ink); border-color:color-mix(in srgb, var(--warn) 45%, transparent)}
+.pill.overdue{background:var(--crit-wash); color:var(--crit-ink); border-color:color-mix(in srgb, var(--crit) 45%, transparent)}
+.pill.blank,.pill.ignored,.pill.dismissed,.pill.duplicate{background:var(--surface-2); color:var(--muted); border-color:var(--border-2)}
+.stcell{display:inline-flex; flex-direction:column; align-items:flex-end; gap:3px}
+.stcell .when{font-size:11px; color:var(--muted); white-space:nowrap; font-variant-numeric:tabular-nums}
+.stcell .when.late{color:var(--crit-ink); font-weight:600}
 .tag{display:inline-block; padding:1px 7px; border-radius:5px; background:var(--surface-3); color:var(--ink-2); font-size:11px; font-weight:700}
 .tag.fixed{background:var(--brand-wash); color:var(--brand-ink)}
 .chip{display:inline-flex; align-items:center; gap:5px; padding:2px 8px; border-radius:6px; font-size:11.5px; font-weight:700; white-space:nowrap; border:1px solid transparent}
@@ -320,10 +323,10 @@ details.tbl summary{cursor:pointer; font-size:12px; color:var(--ink-2); font-wei
 @media (max-width:520px){.two{grid-template-columns:1fr}}
 
 /* ---------- misc ---------- */
-.savechip{display:inline-flex; align-items:center; gap:7px; font-size:12px; font-weight:600; color:var(--muted)}
-.savechip .dot{width:7px; height:7px; border-radius:50%; background:var(--good)}
-.savechip.dirty{color:var(--warn-ink)} .savechip.dirty .dot{background:var(--warn)}
-.savechip.off .dot{background:var(--muted)}
+.savechip{display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--muted)}
+.savechip .ic{width:14px; height:14px; color:var(--good)}
+.savechip.dirty{color:var(--warn-ink)} .savechip.dirty .ic{color:var(--warn)}
+.savechip.off .ic{color:var(--muted)}
 .toast{position:fixed; left:50%; bottom:26px; transform:translateX(-50%); background:var(--navy-deep); color:#fff; border:1px solid rgba(232,182,54,.35);
   padding:11px 18px; border-radius:12px; font-size:13px; font-weight:600; z-index:200; box-shadow:var(--shadow); max-width:calc(100vw - 32px)}
 .empty{text-align:center; padding:40px 20px; color:var(--ink-2)}
@@ -470,6 +473,18 @@ function rowStatus(row, key){
   return (due < todayISO()) ? 'overdue' : 'pending';
 }
 function statusLabel(s){ return s==='paid' ? 'Paid' : (s==='overdue' ? 'Overdue' : 'Pending'); }
+function statusCell(r, key){
+  var st = rowStatus(r, key), sub = '', late = false;
+  if(st === 'paid') sub = fmtDate(r.paidOn);
+  else {
+    var due = r.dueDay ? dueISO(key, r.dueDay) : (key + '-' + String(daysIn(key)).padStart(2,'0'));
+    var p = due.split('-'), t = todayISO().split('-');
+    var d = Math.round((Date.UTC(+p[0],+p[1]-1,+p[2]) - Date.UTC(+t[0],+t[1]-1,+t[2])) / 86400000);
+    if(d < 0){ sub = plural(-d,'day')+' late'; late = true; }
+    else sub = d === 0 ? 'Due today' : (r.dueDay ? 'Due in '+plural(d,'day') : 'By month end');
+  }
+  return '<span class="stcell"><span class="pill '+st+'">'+statusLabel(st)+'</span><span class="when'+(late?' late':'')+'">'+esc(sub)+'</span></span>';
+}
 
 function monthTotals(key){
   var m = S.months[key];
@@ -631,12 +646,40 @@ function rowFromCat(c){
     dueDay: c.dueDay || null, paidOn: '', method: c.method || '', note: ''
   };
 }
+// Brings a month's line in step with its bill. Paid lines are history, so they
+// only pick up a renamed bill; an amount typed in the monthly entry (or a line
+// edited there) is the owner's figure for that month and is left alone.
+function refreshRow(r, c){
+  var before = JSON.stringify(r);
+  r.name = c.name; r.detail = c.detail||''; r.group = c.group;
+  if(!r.paidOn && !r.pinned){
+    r.kind = c.kind; r.dueDay = c.dueDay || null;
+    if(c.method) r.method = c.method;
+    if(c.kind === 'fixed' && !r.ownAmount) r.amount = (c.amount==null ? null : c.amount);
+  }
+  return JSON.stringify(r) !== before;
+}
+// Adds bills missing from the month and refreshes the ones already in it.
 function seedMonth(key){
-  var m = ensureMonth(key), have = {}, added = 0;
-  m.rows.forEach(function(r){ if(r.catId) have[r.catId] = true; });
+  var m = ensureMonth(key), have = {}, added = 0, updated = 0;
+  m.rows.forEach(function(r){
+    if(!r.catId) return;
+    have[r.catId] = true;
+    var c = catById(r.catId);
+    if(c && refreshRow(r, c)) updated++;
+  });
   S.cats.forEach(function(c){ if(!c.active || have[c.id]) return; m.rows.push(rowFromCat(c)); added++; });
   touch();
-  return added;
+  return {added:added, updated:updated};
+}
+// After a bill is edited: carry the change into this month and any later one.
+function propagateCat(c){
+  var from = todayKey(), months = [];
+  monthKeysSorted().forEach(function(k){
+    if(k < from) return;
+    S.months[k].rows.forEach(function(r){ if(r.catId === c.id && refreshRow(r, c) && months.indexOf(k) < 0) months.push(k); });
+  });
+  return months;
 }
 function copyPrevAmounts(key){
   var keys = monthKeysSorted().filter(function(k){ return k < key; });
@@ -868,10 +911,10 @@ function renderGate(msg){
 
 /* ============================ shell ============================ */
 function saveChip(){
-  if(SAVING) return '<span class="savechip off"><span class="dot"></span>Saving…</span>';
-  if(SAVE_ERR === 'error') return '<span class="savechip dirty"><span class="dot"></span>Not saved — retrying</span>';
-  if(DIRTY) return '<span class="savechip dirty"><span class="dot"></span>Unsaved changes</span>';
-  return '<span class="savechip"><span class="dot"></span>All changes saved</span>';
+  if(SAVING) return '<span class="savechip off">'+ic('clock')+'Saving…</span>';
+  if(SAVE_ERR === 'error') return '<span class="savechip dirty">'+ic('alert')+'Not saved — retrying</span>';
+  if(DIRTY) return '<span class="savechip dirty">'+ic('clock')+'Unsaved changes</span>';
+  return '<span class="savechip">'+ic('check')+'All changes saved</span>';
 }
 function monthOptions(){
   var keys = monthKeysSorted();
@@ -931,7 +974,7 @@ function render(){
     +     '<button class="btn sm" data-act="newmonth">'+ic('plus')+'New month</button>'
     +     '<div class="grow"></div>'
     +     saveChip()
-    +     '<button class="btn ghost sm bell" data-act="nav" data-view="autopay" aria-label="Alerts">'+ic('bell')+(att?'<span class="dot"></span>':'')+'</button>'
+    +     '<button class="btn ghost sm bell" data-act="nav" data-view="autopay" aria-label="Alerts">'+ic('bell')+(att?'':'')+'</button>'
     +     '<button class="btn pri sm" data-act="save"'+((!DIRTY||SAVING)?' disabled':'')+'>Save</button>'
     +   '</div>'
     +   '<main class="page">'+body+'</main>'
@@ -1074,9 +1117,9 @@ function statusBlock(t){
     + (t.exp===0?'<span style="background:var(--surface-3); flex:1"></span>':'')
     + '</div>'
     + '<table class="mini"><tbody>'
-    + '<tr><td><span class="pill paid"><span class="dot"></span>Paid</span></td><td class="r num" style="font-weight:700">'+esc(money(t.paid))+'</td></tr>'
-    + '<tr><td><span class="pill pending"><span class="dot"></span>Pending</span></td><td class="r num" style="font-weight:700">'+esc(money(Math.max(0,t.unpaid-t.overdue)))+'</td></tr>'
-    + '<tr><td><span class="pill overdue"><span class="dot"></span>Overdue</span></td><td class="r num" style="font-weight:700">'+esc(money(t.overdue))+'</td></tr>'
+    + '<tr><td><span class="pill paid">Paid</span></td><td class="r num" style="font-weight:700">'+esc(money(t.paid))+'</td></tr>'
+    + '<tr><td><span class="pill pending">Pending</span></td><td class="r num" style="font-weight:700">'+esc(money(Math.max(0,t.unpaid-t.overdue)))+'</td></tr>'
+    + '<tr><td><span class="pill overdue">Overdue</span></td><td class="r num" style="font-weight:700">'+esc(money(t.overdue))+'</td></tr>'
     + '</tbody></table>';
 }
 function yearTable(){
@@ -1203,7 +1246,8 @@ function activityCard(){
               + '<td><b>'+esc(e.bill_name || '—')+'</b>'+(e.ref?'<span class="subline">Ref '+esc(e.ref)+'</span>':'')+'</td>'
               + '<td class="r num">'+(e.amount==null?'—':esc(money(e.amount)))+'</td>'
               + '<td>'+esc(e.source==='manual'?'Pasted':(e.source==='email'?'Email':e.source))+'</td>'
-              + '<td class="r" style="padding-right:18px"><span class="pill '+esc(e.status)+'">'+esc(lab[e.status]||e.status)+'</span></td></tr>';
+              + '<td class="r" style="padding-right:18px; white-space:nowrap"><span class="pill '+esc(e.status)+'">'+esc(lab[e.status]||e.status)+'</span>'
+              + (e.status==='applied' ? ' <button class="iconbtn del" data-act="undoevent" data-id="'+e.id+'" title="Wrong bill? Undo and choose again">Undo</button>' : '') + '</td></tr>';
           }).join('') + '</tbody></table></div>'
       : '<div class="cb"><p class="hint" style="margin:0">No receipts yet. Once Gmail forwarding is on, every GCash and bank confirmation lands here.</p></div>')
     + '</div>'
@@ -1232,11 +1276,11 @@ function viewMonth(){
     return h;
   }
   h += '<div class="toolrow noprint">'
-    + '<button class="btn" data-act="seed">Sync new bills in</button>'
+    + '<button class="btn" data-act="seed" title="Adds new bills and updates unpaid lines from the Bills page">Sync from bill list</button>'
     + '<button class="btn" data-act="copyprev">Copy last month\'s amounts</button>'
     + '<button class="btn" data-act="addrow">'+ic('plus')+'One-off expense</button>'
     + '<div style="flex:1"></div>'
-    + (t.missing?'<span class="pill pending"><span class="dot"></span>'+plural(t.missing,'amount')+' to encode</span>':'')
+    + (t.missing?'<span class="pill pending">'+plural(t.missing,'amount')+' to encode</span>':'')
     + '</div>';
 
   var grouped = {};
@@ -1258,7 +1302,7 @@ function viewMonth(){
         +   (r.confirmedBy ? '<span class="subline ok">✓ '+(r.confirmedBy==='manual'?'receipt pasted':'receipt received')+(r.ref?' · '+esc(r.ref):'')+'</span>' : (r.ref?'<span class="subline">Ref '+esc(r.ref)+'</span>':''))+'</td>'
         + '<td><select data-f="method" data-id="'+r.id+'" aria-label="Payment method for '+esc(r.name)+'" style="width:136px"><option value="">—</option>'
           + methodOptions(r.method) + '</select></td>'
-        + '<td class="r"><span class="pill '+st+'"><span class="dot"></span>'+statusLabel(st)+'</span></td>'
+        + '<td class="r">'+statusCell(r, MK)+'</td>'
         + '<td><div class="rowacts noprint">'
           + (st==='paid'?'':'<button class="iconbtn go" data-act="markpaid" data-id="'+r.id+'" title="Mark paid today">Paid</button>')
           + '<button class="iconbtn" data-act="editrow" data-id="'+r.id+'">Edit</button>'
@@ -1317,7 +1361,7 @@ function viewBills(){
       + '<td class="num" style="color:var(--ink-2)">'+(c.dueDay?esc(ordinal(c.dueDay)):'<span style="color:var(--muted)">—</span>')+'</td>'
       + '<td>'+modeChip(c.payMode, c.enrolled)+'</td>'
       + '<td style="color:var(--ink-2)">'+(fundName(c.fundFrom)?esc(fundName(c.fundFrom)):'<span style="color:var(--muted)">—</span>')+'</td>'
-      + '<td class="r"><span class="pill '+(c.active?'paid':'blank')+'"><span class="dot"></span>'+(c.active?'Active':'Paused')+'</span></td>'
+      + '<td class="r"><span class="pill '+(c.active?'paid':'blank')+'">'+(c.active?'Active':'Paused')+'</span></td>'
       + '<td><div class="rowacts noprint">'
         + '<button class="iconbtn" data-act="editcat" data-id="'+c.id+'">Edit</button>'
         + '<button class="iconbtn" data-act="togglecat" data-id="'+c.id+'">'+(c.active?'Pause':'Activate')+'</button>'
@@ -1366,7 +1410,7 @@ function viewReports(){
             + '<td class="r num">'+(r.amount==null?'—':esc(money(r.amount)))+'</td>'
             + '<td class="num">'+(r.dueDay?esc(fmtDate(dueISO(MK,r.dueDay))):'—')+'</td>'
             + '<td class="num">'+(r.paidOn?esc(fmtDate(r.paidOn)):'—')+'</td><td>'+esc(r.method||'—')+'</td><td class="hint">'+esc(r.ref||'')+'</td>'
-            + '<td class="r"><span class="pill '+st+'"><span class="dot"></span>'+statusLabel(st)+'</span></td></tr>';
+            + '<td class="r">'+statusCell(r, MK)+'</td></tr>';
         }).join('')
       + '<tr class="tot"><td colspan="2">Total</td><td class="r num">'+esc(money(t.exp))+'</td><td colspan="5"></td></tr>'
       + '</tbody></table></div></div>';
@@ -1601,7 +1645,12 @@ document.addEventListener('click', function(e){
     touch(); render(); toast(mLabel(nk)+' created from your bill list.');
     return;
   }
-  if(act === 'seed'){ var n = seedMonth(MK); VIEW = 'month'; render(); toast(n ? (plural(n,'bill')+' added to '+mLabel(MK)) : 'Everything on your list is already in this month.'); return; }
+  if(act === 'seed'){
+    var n = seedMonth(MK); VIEW = 'month'; render();
+    var bits = []; if(n.added) bits.push(plural(n.added,'bill')+' added'); if(n.updated) bits.push(plural(n.updated,'line')+' updated');
+    toast(bits.length ? bits.join(', ')+' in '+mLabel(MK)+'.' : mLabel(MK)+' already matches your bill list.');
+    return;
+  }
   if(act === 'copyprev'){ var c = copyPrevAmounts(MK); render(); toast(c ? (plural(c,'amount')+' copied forward.') : 'No earlier month to copy from.'); return; }
 
   if(act === 'markpaid'){
@@ -1618,6 +1667,7 @@ document.addEventListener('click', function(e){
         var nm = mval(h,'name'); if(!nm) return false;
         row.name = nm; row.detail = mval(h,'detail'); row.group = mval(h,'group'); row.kind = mval(h,'kind');
         var a = mval(h,'amount'); row.amount = a === '' ? null : Number(a);
+        row.pinned = true; row.ownAmount = a !== '';
         var d = mval(h,'dueDay'); row.dueDay = d === '' ? null : Number(d);
         row.method = mval(h,'method'); row.note = mval(h,'note');
         touch(); render();
@@ -1658,7 +1708,9 @@ document.addEventListener('click', function(e){
     openModal('Edit bill — '+cat.name, fieldsFor(cat, true), function(h){
       if(!mval(h,'name')) return false;
       readCat(h, cat); cat.note = '';
+      var hit = propagateCat(cat);
       touch(); render();
+      if(hit.length) toast('Saved — also updated in '+hit.map(mLabel).join(', ')+'.');
     });
     return;
   }
@@ -1682,7 +1734,7 @@ document.addEventListener('click', function(e){
   }
   if(act === 'clearrcpt'){ RECEIPT = null; render(); return; }
   if(act === 'applyrcpt'){
-    var body = {catId:$('#rc-cat').value, amount:$('#rc-amt').value, paidOn:$('#rc-date').value, ref:$('#rc-ref').value, text:RECEIPT.text};
+    var body = {catId:$('#rc-cat').value, amount:$('#rc-amt').value, paidOn:$('#rc-date').value, ref:$('#rc-ref').value, method:RECEIPT.parsed.method||'', text:RECEIPT.text};
     if(!body.catId){ toast('Choose which bill this pays.'); return; }
     applyPayment(body, b, function(){ RECEIPT = null; });
     return;
@@ -1692,6 +1744,15 @@ document.addEventListener('click', function(e){
     var ev = AUTO.events.filter(function(x){ return String(x.id)===id; })[0];
     if(!sel || !sel.value){ toast('Choose which bill this receipt pays.'); return; }
     applyPayment({catId:sel.value, amount:ev.amount, paidOn:ev.paid_on, ref:ev.ref, eventId:ev.id}, b);
+    return;
+  }
+  if(act === 'undoevent'){
+    var ue = AUTO.events.filter(function(x){ return String(x.id)===id; })[0];
+    openModal('Undo this payment?', '<p style="margin:0">'+esc(ue && ue.bill_name || 'The bill')+' goes back to unpaid and the receipt moves to “Receipts to assign”, where you can pick the right bill or mark it “Not a bill”.</p>', function(){
+      var go = function(){ post('/api/events/'+id+'/undo').then(function(){ toast('Undone — choose the right bill for that receipt.'); return loadState().then(function(){ render(); refreshAuto(); }); })
+        .catch(function(e2){ toast(errMsg(e2,'Could not undo.')); }); };
+      if(DIRTY){ saveNow(); setTimeout(go, 1500); } else go();
+    }, 'Undo payment');
     return;
   }
   if(act === 'dismiss'){
@@ -1835,7 +1896,7 @@ document.addEventListener('change', function(e){
   if(f === 'amount' || f === 'paidOn' || f === 'method'){
     m.rows.forEach(function(r){
       if(r.id !== id) return;
-      if(f === 'amount') r.amount = (v === '' ? null : Number(v));
+      if(f === 'amount'){ r.amount = (v === '' ? null : Number(v)); r.ownAmount = v !== ''; }
       else r[f] = v;
       if(f === 'paidOn' && !v){ delete r.confirmedBy; }
     });
