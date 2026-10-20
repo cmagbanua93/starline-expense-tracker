@@ -18,7 +18,7 @@ const CATS = [
   ['c08', 'Loan 200k Eastwest', '6,885 x 36 months', 'Loans', 'fixed', 6809.02, 9, 'GCash', ''],
   ['c09', 'Loan 200k Unionbank', '', 'Loans', 'fixed', 6580, 10, 'GCash', ''],
   ['c10', 'Home Credit', '', 'Loans', 'fixed', 5540, null, 'BPI Credit Card', ''],
-  ['c11', 'Electric', 'Meralco', 'Utilities', 'variable', 10828, null, 'GCash',
+  ['c11', 'Electric', 'VECO', 'Utilities', 'variable', 10828, null, 'GCash',
     'Varies monthly — last known ₱10,828.'],
   ['c12', 'Salary — Franz', '', 'Payroll', 'fixed', 18000, null, 'Bank Transfer', ''],
   ['c13', 'Salary — Jepjep', '', 'Payroll', 'fixed', 16000, null, 'Bank Transfer', ''],
